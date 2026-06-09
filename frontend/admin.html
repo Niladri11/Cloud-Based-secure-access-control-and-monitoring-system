@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Admin — SecureAccess</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app-layout">
+    <aside class="sidebar">
+      <div class="logo"> SecureAccess</div>
+      <nav>
+        <a href="#stats"      class="active" onclick="showSection('stats')">📊 Overview</a>
+        <a href="#logs"       onclick="showSection('logs')">📋 Activity Logs</a>
+        <a href="#users"      onclick="showSection('users')">👥 Users</a>
+        <a href="#blocked"    onclick="showSection('blocked')">🚫 Blocked IPs</a>
+      </nav>
+      <button class="logout-btn" onclick="logout()">⬅ Logout</button>
+    </aside>
+
+    <main class="main-content">
+
+      <!-- STATS -->
+      <section id="section-stats">
+        <h1 class="page-title">Admin Dashboard</h1>
+        <div class="stats-grid" id="statsGrid">
+          <div class="stat-card"><div class="label">Total Users</div><div class="value" id="stat-users">—</div></div>
+          <div class="stat-card"><div class="label">Total Events</div><div class="value" id="stat-logs">—</div></div>
+          <div class="stat-card"><div class="label">Failed Today</div><div class="value" id="stat-failed" style="color:var(--danger)">—</div></div>
+          <div class="stat-card"><div class="label">Blocked IPs</div><div class="value" id="stat-blocked" style="color:var(--warning)">—</div></div>
+        </div>
+      </section>
+
+      <!-- LOGS -->
+      <section id="section-logs" style="display:none">
+        <h1 class="page-title">Activity Logs</h1>
+        <div class="table-card">
+          <div class="filter-bar">
+            <input type="text"   id="f-ip"    placeholder="Filter by IP" />
+            <select id="f-event">
+              <option value="">All Events</option>
+              <option>LOGIN_SUCCESS</option><option>LOGIN_FAILURE</option>
+              <option>LOGOUT</option><option>ACCOUNT_LOCKED</option><option>REGISTER</option>
+            </select>
+            <input type="date" id="f-from" />
+            <input type="date" id="f-to"   />
+            <button class="btn btn-primary btn-sm" onclick="loadLogs()">Filter</button>
+          </div>
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr>
+                <th>Time</th><th>User</th><th>Event</th><th>IP Address</th><th>User Agent</th>
+              </tr></thead>
+              <tbody id="logsBody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:2rem">Loading…</td></tr></tbody>
+            </table>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:.75rem 1.5rem;border-top:1px solid var(--border)">
+            <span id="logsPagination" style="font-size:.85rem;color:var(--muted)"></span>
+            <div style="display:flex;gap:.5rem">
+              <button class="btn btn-sm" onclick="changePage(-1)" style="background:var(--border)">← Prev</button>
+              <button class="btn btn-sm" onclick="changePage(1)"  style="background:var(--border)">Next →</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- USERS -->
+      <section id="section-users" style="display:none">
+        <h1 class="page-title">User Management</h1>
+        <div class="table-card">
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr>
+                <th>ID</th><th>Username</th><th>Email</th><th>Role</th>
+                <th>Status</th><th>Failed Attempts</th><th>Locked Until</th><th>Action</th>
+              </tr></thead>
+              <tbody id="usersBody"><tr><td colspan="8" style="text-align:center;color:var(--muted);padding:2rem">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- BLOCKED IPs -->
+      <section id="section-blocked" style="display:none">
+        <h1 class="page-title">Blocked IP Addresses</h1>
+        <div class="table-card">
+          <div style="overflow-x:auto">
+            <table>
+              <thead><tr>
+                <th>IP Address</th><th>Reason</th><th>Blocked At</th><th>Permanent</th><th>Actions</th>
+              </tr></thead>
+              <tbody id="blockedBody"><tr><td colspan="5" style="text-align:center;color:var(--muted);padding:2rem">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script>
+    const token = localStorage.getItem('token');
+    const user  = JSON.parse(localStorage.getItem('user') || '{}');
+    if (!token || user.role !== 'admin') { window.location.href = 'index.html'; }
+
+    const API = (path, opts = {}) => fetch(`/api/admin${path}`, {
+      ...opts,
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...opts.headers },
+    }).then(r => r.json());
+
+    let logsPage = 1;
+
+    // ── Sections ───────────────────────────────────────────
+    function showSection(name) {
+      ['stats','logs','users','blocked'].forEach(s => {
+        document.getElementById(`section-${s}`).style.display = s === name ? '' : 'none';
+      });
+      document.querySelectorAll('.sidebar nav a').forEach(a => a.classList.remove('active'));
+      event.target.classList.add('active');
+      if (name === 'logs')    loadLogs();
+      if (name === 'users')   loadUsers();
+      if (name === 'blocked') loadBlocked();
+    }
+
+    // ── Stats ──────────────────────────────────────────────
+    async function loadStats() {
+      const d = await API('/stats');
+      document.getElementById('stat-users').textContent   = d.total_users;
+      document.getElementById('stat-logs').textContent    = d.total_logs;
+      document.getElementById('stat-failed').textContent  = d.failed_today;
+      document.getElementById('stat-blocked').textContent = d.blocked_ips;
+    }
+
+    // ── Logs ───────────────────────────────────────────────
+    async function loadLogs() {
+      const ip    = document.getElementById('f-ip').value;
+      const event_type = document.getElementById('f-event').value;
+      const from  = document.getElementById('f-from').value;
+      const to    = document.getElementById('f-to').value;
+      const params = new URLSearchParams({ page: logsPage, limit: 20 });
+      if (ip) params.set('ip_address', ip);
+      if (event_type) params.set('event_type', event_type);
+      if (from) params.set('from', from);
+      if (to)   params.set('to', to);
+
+      const d = await API(`/logs?${params}`);
+      const tbody = document.getElementById('logsBody');
+      tbody.innerHTML = d.logs.map(l => `
+        <tr>
+          <td>${new Date(l.timestamp).toLocaleString()}</td>
+          <td>${l.username || '<i style="color:var(--muted)">unknown</i>'}</td>
+          <td><span class="badge ${badgeClass(l.event_type)}">${l.event_type}</span></td>
+          <td><code>${l.ip_address || '—'}</code></td>
+          <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.78rem;color:var(--muted)">${l.user_agent || '—'}</td>
+        </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:1.5rem">No records found</td></tr>';
+
+      document.getElementById('logsPagination').textContent =
+        `Page ${d.page} · Showing ${d.logs.length} of ${d.total}`;
+    }
+
+    function changePage(dir) {
+      if (logsPage + dir < 1) return;
+      logsPage += dir;
+      loadLogs();
+    }
+
+    function badgeClass(type) {
+      return { LOGIN_SUCCESS:'badge-green', LOGIN_FAILURE:'badge-red',
+               ACCOUNT_LOCKED:'badge-yellow', LOGOUT:'badge-blue', REGISTER:'badge-gray' }[type] || 'badge-gray';
+    }
+
+    // ── Users ──────────────────────────────────────────────
+    async function loadUsers() {
+      const d = await API('/users');
+      document.getElementById('usersBody').innerHTML = d.users.map(u => `
+        <tr>
+          <td>${u.user_id}</td>
+          <td><strong>${u.username}</strong></td>
+          <td>${u.email}</td>
+          <td><span class="badge ${u.role==='admin'?'badge-blue':'badge-gray'}">${u.role}</span></td>
+          <td><span class="badge ${u.is_active?'badge-green':'badge-red'}">${u.is_active?'Active':'Suspended'}</span></td>
+          <td>${u.failed_attempts}</td>
+          <td>${u.locked_until ? new Date(u.locked_until).toLocaleString() : '—'}</td>
+          <td>
+            <button class="btn btn-sm ${u.is_active?'btn-danger':''}" 
+              style="${u.is_active?'':'background:var(--success);color:#fff'}"
+              onclick="toggleUser(${u.user_id})">${u.is_active?'Suspend':'Activate'}</button>
+          </td>
+        </tr>`).join('');
+    }
+
+    async function toggleUser(id) {
+      if (!confirm('Toggle user account status?')) return;
+      await API(`/users/${id}/toggle`, { method: 'PATCH' });
+      loadUsers();
+    }
+
+    // ── Blocked IPs ────────────────────────────────────────
+    async function loadBlocked() {
+      const d = await API('/blocked-ips');
+      document.getElementById('blockedBody').innerHTML = d.blocked_ips.map(b => `
+        <tr>
+          <td><code>${b.ip_address}</code></td>
+          <td>${b.reason}</td>
+          <td>${new Date(b.blocked_at).toLocaleString()}</td>
+          <td><span class="badge ${b.permanent?'badge-red':'badge-yellow'}">${b.permanent?'Yes':'No'}</span></td>
+          <td style="display:flex;gap:.4rem;flex-wrap:wrap">
+            <button class="btn btn-sm" style="background:var(--success);color:#fff" onclick="unblockIP(${b.id})">Unblock</button>
+            ${!b.permanent ? `<button class="btn btn-sm btn-danger" onclick="makePermBlock(${b.id})">Perm Block</button>` : ''}
+          </td>
+        </tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:1.5rem">No blocked IPs</td></tr>';
+    }
+
+    async function unblockIP(id) {
+      if (!confirm('Unblock this IP?')) return;
+      await API(`/blocked-ips/${id}`, { method: 'DELETE' });
+      loadBlocked(); loadStats();
+    }
+
+    async function makePermBlock(id) {
+      if (!confirm('Permanently block this IP? This cannot be undone from here.')) return;
+      await API(`/blocked-ips/${id}/permanent`, { method: 'PATCH' });
+      loadBlocked();
+    }
+
+    // ── Logout ─────────────────────────────────────────────
+    function logout() {
+      fetch('/api/auth/logout', { method: 'POST', credentials: 'include',
+        headers: { Authorization: `Bearer ${token}` } })
+        .finally(() => { localStorage.clear(); window.location.href = 'index.html'; });
+    }
+
+    // Init
+    loadStats();
+  </script>
+</body>
+</html>
